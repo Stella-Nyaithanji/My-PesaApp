@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "983644098469",
+    "project_id": "my-pesa-app",
+    "storage_bucket": "my-pesa-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:983644098469:android:b25a86bc95d2369954e24c",
+        "android_client_info": {
+          "package_name": "com.smokeless.mypesaapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAoRs5VwfMPqUnCmhUp9GFbyNn1BfTVVjk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
