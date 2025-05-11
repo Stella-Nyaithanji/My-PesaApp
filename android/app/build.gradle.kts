@@ -46,8 +46,16 @@ android {
 }
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+
+    // Use Firebase BoM to manage versions
+    implementation(platform("com.google.firebase:firebase-bom:33.13.0"))
+
+    // Add Firebase Authentication
+    implementation("com.google.firebase:firebase-auth")
 }
+
 
 flutter {
     source = "../.."
 }
+

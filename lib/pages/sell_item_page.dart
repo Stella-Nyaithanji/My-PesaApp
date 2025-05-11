@@ -12,7 +12,7 @@ class _SellItemPageState extends State<SellItemPage> {
   final Map<String, dynamic> selectedItems = {}; // {itemId: {item, qty, price}}
   double total = 0.0;
 
-  void _showSellDialog(DocumentSnapshot stockItem) {
+  void showSellDialog(DocumentSnapshot stockItem) {
     final qtyController = TextEditingController();
     final priceController = TextEditingController(text: stockItem['price'].toString());
 
@@ -39,30 +39,64 @@ class _SellItemPageState extends State<SellItemPage> {
             actions: [
               TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel')),
               ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
                 onPressed: () {
-                  final soldQty = double.tryParse(qtyController.text) ?? 0;
-                  final soldPrice = double.tryParse(priceController.text) ?? 0;
-
-                  if (soldQty <= 0 || soldPrice <= 0) return;
-
-                  setState(() {
-                    selectedItems[stockItem.id] = {'item': stockItem['item'], 'quantity': soldQty, 'price': soldPrice};
-                    total = selectedItems.values.fold(0.0, (sum, item) => sum + (item['price'] * item['quantity']));
-                  });
-
-                  Navigator.pop(context);
+                  _addSale(stockItem, qtyController, priceController, isCredit: false);
                 },
-                child: Text('Add'),
+                child: Text('Add Sale'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                onPressed: () {
+                  _addSale(stockItem, qtyController, priceController, isCredit: true);
+                },
+                child: Text('Add as Credit'),
               ),
             ],
           ),
     );
   }
 
+  void _addSale(
+    DocumentSnapshot stockItem,
+    TextEditingController qtyController,
+    TextEditingController priceController, {
+    required bool isCredit,
+  }) {
+    final soldQty = double.tryParse(qtyController.text) ?? 0;
+    final soldPrice = double.tryParse(priceController.text) ?? 0;
+
+    if (soldQty <= 0 || soldPrice <= 0) return;
+
+    setState(() {
+      selectedItems[stockItem.id] = {
+        'item': stockItem['item'],
+        'quantity': soldQty,
+        'price': soldPrice,
+        'isCredit': isCredit,
+      };
+      total = selectedItems.values.fold(0.0, (sum, item) => sum + (item['price'] * item['quantity']));
+    });
+
+    Navigator.pop(context);
+  }
+
   void _completeSale() async {
     for (var entry in selectedItems.entries) {
       final itemId = entry.key;
       final soldQty = entry.value['quantity'];
+      final isCredit = entry.value['isCredit'];
+
+      if (isCredit) {
+        await FirebaseFirestore.instance.collection('credits').add({
+          'itemId': itemId,
+          'item': entry.value['item'],
+          'quantity': soldQty,
+          'price': entry.value['price'],
+          'timestamp': Timestamp.now(),
+        });
+        continue; // Skip stock update for credits
+      }
 
       final doc = FirebaseFirestore.instance.collection('stock').doc(itemId);
       final snapshot = await doc.get();
@@ -115,7 +149,7 @@ class _SellItemPageState extends State<SellItemPage> {
                             Text("Buying Price: KSH ${stockItem['price']}"),
                           ],
                         ),
-                        onTap: () => _showSellDialog(stockItem),
+                        onTap: () => showSellDialog(stockItem),
                       ),
                     );
                   },
@@ -132,7 +166,9 @@ class _SellItemPageState extends State<SellItemPage> {
                 children: [
                   Text("Sold Items:", style: TextStyle(fontWeight: FontWeight.bold)),
                   ...selectedItems.values.map(
-                    (item) => Text("${item['item']} - ${item['quantity']} @ KSH ${item['price']}"),
+                    (item) => Text(
+                      "${item['item']} - ${item['quantity']} @ KSH ${item['price']}${item['isCredit'] ? " (Credit)" : ""}",
+                    ),
                   ),
                   SizedBox(height: 8),
                   Text(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:my_pesa_app/pages/add_Stock_page.dart';
 import 'package:my_pesa_app/pages/sell_item_page.dart';
+import 'package:my_pesa_app/pages/view_debtors_and_Creditors_page.dart';
 import 'package:my_pesa_app/pages/view_stock_page.dart';
 
 class HomePage extends StatelessWidget {
@@ -20,12 +21,15 @@ class HomePage extends StatelessWidget {
         children: [
           Text('My Pesa APP', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
           SizedBox(height: 10),
-          Text('Hello, Stella! Let us Kick off from where we left:', style: TextStyle(color: Colors.white)),
+          Text(
+            'Hello, Stella! Let us Kick off from where we left:',
+            style: TextStyle(fontSize: 10, color: Colors.white),
+          ),
           SizedBox(height: 30),
           buildMenuButton(context, 'Add Stock'),
           buildMenuButton(context, 'View Stock'),
           buildMenuButton(context, 'Sell Item'),
-          buildMenuButton(context, 'View Inventory'),
+          buildMenuButton(context, 'View Debtors & Creditors'),
         ],
       ),
     );
@@ -42,6 +46,8 @@ class HomePage extends StatelessWidget {
             Navigator.push(context, MaterialPageRoute(builder: (context) => SellItemPage()));
           } else if (title == 'View Stock') {
             Navigator.push(context, MaterialPageRoute(builder: (context) => ViewStockPage()));
+          } else if (title == 'View Debtors & Creditors') {
+            Navigator.push(context, MaterialPageRoute(builder: (context) => ViewDebtorsAndCreditorsPage()));
           }
         },
         style: ElevatedButton.styleFrom(

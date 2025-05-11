@@ -123,7 +123,7 @@ class _AddStockPageState extends State<AddStockPage> {
                             ),
                           );
                           Future.delayed(Duration(milliseconds: 800), () {
-                            Navigator.pop(context); // Go back to InventoryPage
+                            Navigator.pop(context);
                           });
                         })
                         .catchError((error) {
@@ -136,7 +136,7 @@ class _AddStockPageState extends State<AddStockPage> {
                 child: Text('Save Stock'),
               ),
               SizedBox(height: 10),
-              OutlinedButton(onPressed: () => showDebtDialog(context), child: Text('Add as Debt')),
+              OutlinedButton(onPressed: () => showDebtDialog(context), child: Text('Add as Credit (Debt)')),
             ],
           ),
         ),
@@ -161,9 +161,7 @@ class _AddStockPageState extends State<AddStockPage> {
               );
 
               if (picked != null) {
-                setModalState(() {
-                  debtDate = picked;
-                });
+                setModalState(() => debtDate = picked);
               }
             }
 
@@ -194,13 +192,21 @@ class _AddStockPageState extends State<AddStockPage> {
                       ElevatedButton(
                         onPressed: () {
                           if (debtDate != null) {
+                            final qty = double.tryParse(debtQtyController.text) ?? 0;
+                            final price = double.tryParse(debtPriceController.text) ?? 0;
+                            final amount = qty * price;
+
                             FirebaseFirestore.instance
                                 .collection('debts')
                                 .add({
-                                  'supplier': supplierController.text,
-                                  'item': debtItemController.text,
-                                  'quantity': debtQtyController.text,
-                                  'price': double.tryParse(debtPriceController.text) ?? 0.0,
+                                  'supplier': supplierController.text.trim(),
+                                  'item': debtItemController.text.trim(),
+                                  'quantity': qty,
+                                  'price': price,
+                                  'amount': amount,
+                                  'repaid': 0.0,
+                                  'balance': amount,
+                                  'type': 'creditor', // source of goods
                                   'date': DateFormat('yyyy-MM-dd').format(debtDate!),
                                   'timestamp': FieldValue.serverTimestamp(),
                                 })
