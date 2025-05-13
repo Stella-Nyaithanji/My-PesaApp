@@ -14,6 +14,7 @@ class _SellItemPageState extends State<SellItemPage> {
   double total = 0.0;
   bool isProcessingSale = false;
   int cartItemCount = 0;
+  String searchQuery = "";
 
   void showSellDialog(DocumentSnapshot stockItem) {
     final qtyController = TextEditingController();
@@ -189,6 +190,21 @@ class _SellItemPageState extends State<SellItemPage> {
       ),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: TextField(
+              onChanged: (value) {
+                setState(() {
+                  searchQuery = value.toLowerCase();
+                });
+              },
+              decoration: InputDecoration(
+                labelText: 'Search Item',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance.collection('stock').orderBy('item').snapshots(),
@@ -196,11 +212,15 @@ class _SellItemPageState extends State<SellItemPage> {
                 if (!snapshot.hasData) return Center(child: CircularProgressIndicator());
 
                 final items = snapshot.data!.docs;
+                final filteredItems =
+                    items.where((item) {
+                      return item['item'].toString().toLowerCase().contains(searchQuery);
+                    }).toList();
 
                 return ListView.builder(
-                  itemCount: items.length,
+                  itemCount: filteredItems.length,
                   itemBuilder: (context, index) {
-                    final stockItem = items[index];
+                    final stockItem = filteredItems[index];
                     final availableQty = double.tryParse(stockItem['quantity'].toString().split(' ').first) ?? 0;
                     final restockAlert = double.tryParse(stockItem['restockAlert'].toString()) ?? 0;
                     final isLowStock = availableQty <= restockAlert;
@@ -247,8 +267,11 @@ class _SellItemPageState extends State<SellItemPage> {
                         margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         child: ListTile(
                           title: Text(
-                            stockItem['item'],
-                            style: TextStyle(color: isOutOfStock ? Colors.grey : Colors.black),
+                            isLowStock ? '${stockItem['item']} - Restock' : stockItem['item'],
+                            style: TextStyle(
+                              color: isOutOfStock ? Colors.grey : Colors.black,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -258,8 +281,12 @@ class _SellItemPageState extends State<SellItemPage> {
                                 style: TextStyle(color: isOutOfStock ? Colors.grey : Colors.black),
                               ),
                               Text(
-                                "Selling Price: KSH ${stockItem['sellingPrice']}",
-                                style: TextStyle(color: isOutOfStock ? Colors.grey : Colors.black),
+                                "KSH ${stockItem['sellingPrice']}",
+                                style: TextStyle(
+                                  color: isOutOfStock ? Colors.grey : Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                ),
                               ),
                               if (isLowStock && !isOutOfStock)
                                 Text("⚠️ Restock needed", style: TextStyle(color: Colors.orange)),
@@ -287,28 +314,38 @@ class _SellItemPageState extends State<SellItemPage> {
           ),
           if (selectedItems.isNotEmpty) Divider(),
           if (selectedItems.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Selected Items:", style: TextStyle(fontWeight: FontWeight.bold)),
-                  ...selectedItems.entries.map((entry) {
-                    final item = entry.value;
-                    return ListTile(
-                      title: Text(item['item']),
-                      subtitle: Text(
-                        'Qty: ${item['quantity']} x KSH ${item['price']} = KSH ${item['quantity'] * item['price']}',
+            Expanded(
+              // This is important to prevent overflow.
+              child: SingleChildScrollView(
+                // Scrolls if there are many selected items.
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Selected Items:", style: TextStyle(fontWeight: FontWeight.bold)),
+                      Column(
+                        children:
+                            selectedItems.entries.map((entry) {
+                              final item = entry.value;
+                              return ListTile(
+                                title: Text(item['item']),
+                                subtitle: Text(
+                                  'Qty: ${item['quantity']} x KSH ${item['price']} = KSH ${item['quantity'] * item['price']}',
+                                ),
+                              );
+                            }).toList(),
                       ),
-                    );
-                  }).toList(),
-                  Divider(),
-                  Text("Total: KSH $total", style: TextStyle(fontWeight: FontWeight.bold)),
-                  ElevatedButton(
-                    onPressed: isProcessingSale ? null : _completeSale,
-                    child: isProcessingSale ? CircularProgressIndicator(color: Colors.white) : Text('Complete Sale'),
+                      Divider(),
+                      Text("Total: KSH $total", style: TextStyle(fontWeight: FontWeight.bold)),
+                      ElevatedButton(
+                        onPressed: isProcessingSale ? null : _completeSale,
+                        child:
+                            isProcessingSale ? CircularProgressIndicator(color: Colors.white) : Text('Complete Sale'),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
         ],
