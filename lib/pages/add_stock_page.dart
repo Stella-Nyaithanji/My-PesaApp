@@ -1,23 +1,22 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'firestore_collections_service.dart';
 
 class AddStockPage extends StatefulWidget {
   const AddStockPage({super.key});
 
   @override
-  State<AddStockPage> createState() => _AddStockPageState();
+  State<AddStockPage> createState() => AddStockPageState();
 }
 
-class _AddStockPageState extends State<AddStockPage> {
+class AddStockPageState extends State<AddStockPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _itemController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
   final TextEditingController _restockAlertController = TextEditingController();
-  final TextEditingController _buyingPriceController = TextEditingController(); // Buying price controller
-  final TextEditingController _sellingPriceController = TextEditingController(); // Selling price controller
+  final TextEditingController _buyingPriceController = TextEditingController();
+  final TextEditingController _sellingPriceController = TextEditingController();
 
-  String _selectedUnit = 'kilograms'; // Default unit
+  String _selectedUnit = 'kilograms';
   final List<String> _unitOptions = [
     'kilograms',
     'grams',
@@ -29,6 +28,8 @@ class _AddStockPageState extends State<AddStockPage> {
     'bottles',
     'containers',
   ];
+
+  final FirestoreCollectionsService _firestoreService = FirestoreCollectionsService();
 
   Future<void> _addStockItem() async {
     if (_formKey.currentState!.validate()) {
@@ -48,35 +49,27 @@ class _AddStockPageState extends State<AddStockPage> {
         return;
       }
 
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-
-      if (uid == null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('User is not authenticated.'), backgroundColor: Colors.red));
-        return;
-      }
-
       try {
-        await FirebaseFirestore.instance.collection('stock').add({
-          'item': item,
-          'quantity': '$quantity $_selectedUnit',
-          'restockAlert': restockAlert,
-          'sellingPrice': sellingPrice,
-          'buyingPrice': buyingPrice,
-          'unit': _selectedUnit,
-          'timestamp': FieldValue.serverTimestamp(),
-          'userId': uid,
-        });
+        await _firestoreService.addStockItem(
+          item: item,
+          quantity: quantity,
+          unit: _selectedUnit,
+          restockAlert: restockAlert,
+          sellingPrice: sellingPrice,
+          buyingPrice: buyingPrice,
+        );
 
-        // Show snackbar
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$item added successfully!'), backgroundColor: Colors.green));
 
-        // Delay briefly then pop back to previous page (e.g. homepage)
-        Future.delayed(Duration(seconds: 1), () {
-          Navigator.pop(context);
+        _itemController.clear();
+        _quantityController.clear();
+        _restockAlertController.clear();
+        _buyingPriceController.clear();
+        _sellingPriceController.clear();
+        setState(() {
+          _selectedUnit = 'kilograms';
         });
       } catch (e) {
         ScaffoldMessenger.of(
@@ -125,9 +118,9 @@ class _AddStockPageState extends State<AddStockPage> {
                   });
                 },
                 items:
-                    _unitOptions.map((String unit) {
-                      return DropdownMenuItem<String>(value: unit, child: Text(unit));
-                    }).toList(),
+                    _unitOptions
+                        .map((String unit) => DropdownMenuItem<String>(value: unit, child: Text(unit)))
+                        .toList(),
                 decoration: InputDecoration(labelText: 'Quantity Type (Unit)'),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
@@ -150,7 +143,7 @@ class _AddStockPageState extends State<AddStockPage> {
               TextFormField(
                 controller: _buyingPriceController,
                 keyboardType: TextInputType.number,
-                decoration: InputDecoration(labelText: 'Buying Price'), // Add buying price field
+                decoration: InputDecoration(labelText: 'Buying Price'),
                 validator: (value) {
                   if (value == null || value.isEmpty || double.tryParse(value) == null) {
                     return 'Please enter a valid buying price';

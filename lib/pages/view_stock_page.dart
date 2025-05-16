@@ -1,17 +1,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:my_pesa_app/pages/firestore_collections_service.dart';
+import 'package:my_pesa_app/widgets/add_debt_dialog_widget.dart';
 
 class ViewStockPage extends StatefulWidget {
   const ViewStockPage({super.key});
 
   @override
-  _ViewStockPageState createState() => _ViewStockPageState();
+  ViewStockPageState createState() => ViewStockPageState();
 }
 
-class _ViewStockPageState extends State<ViewStockPage> {
+class ViewStockPageState extends State<ViewStockPage> {
   final TextEditingController _searchController = TextEditingController();
   String searchQuery = '';
-  double totalStockValue = 0.0;
+
+  final FirestoreCollectionsService _firestoreService = FirestoreCollectionsService();
 
   Future<void> _deleteStockItem(String docId) async {
     final confirm = await showDialog<bool>(
@@ -29,7 +32,7 @@ class _ViewStockPageState extends State<ViewStockPage> {
 
     if (confirm == true) {
       try {
-        await FirebaseFirestore.instance.collection('stock').doc(docId).delete();
+        await _firestoreService.deleteStockItem(docId);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Stock item deleted successfully!'), backgroundColor: Colors.green),
         );
@@ -47,9 +50,11 @@ class _ViewStockPageState extends State<ViewStockPage> {
     double quantity,
     double sellingPrice,
     double restockAlert,
+    String unit,
   ) async {
     TextEditingController itemController = TextEditingController(text: itemName);
     TextEditingController quantityController = TextEditingController(text: quantity.toString());
+    TextEditingController unitController = TextEditingController(text: unit);
     TextEditingController sellingPriceController = TextEditingController(text: sellingPrice.toString());
     TextEditingController restockAlertController = TextEditingController(text: restockAlert.toString());
 
@@ -67,6 +72,7 @@ class _ViewStockPageState extends State<ViewStockPage> {
                     decoration: const InputDecoration(labelText: 'Quantity'),
                     keyboardType: TextInputType.number,
                   ),
+                  TextField(controller: unitController, decoration: const InputDecoration(labelText: 'Unit')),
                   TextField(
                     controller: sellingPriceController,
                     decoration: const InputDecoration(labelText: 'Selling Price'),
@@ -85,12 +91,14 @@ class _ViewStockPageState extends State<ViewStockPage> {
               TextButton(
                 onPressed: () async {
                   try {
-                    await FirebaseFirestore.instance.collection('stock').doc(docId).update({
-                      'item': itemController.text,
-                      'quantity': quantityController.text,
-                      'sellingPrice': double.parse(sellingPriceController.text),
-                      'restockAlert': double.parse(restockAlertController.text),
-                    });
+                    await _firestoreService.updateStockItem(
+                      docId: docId,
+                      item: itemController.text.trim(),
+                      quantity: double.parse(quantityController.text),
+                      unit: unitController.text.trim(),
+                      sellingPrice: double.parse(sellingPriceController.text),
+                      restockAlert: double.parse(restockAlertController.text),
+                    );
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Stock item updated successfully!'), backgroundColor: Colors.green),
@@ -113,13 +121,13 @@ class _ViewStockPageState extends State<ViewStockPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("View Stock"),
+        backgroundColor: Colors.teal,
         actions: [
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: const Icon(Icons.money_off),
+            tooltip: 'Add Debt',
             onPressed: () {
-              setState(() {
-                searchQuery = _searchController.text.trim();
-              });
+              showDialog(context: context, builder: (context) => AddDebtDialog());
             },
           ),
         ],
@@ -143,20 +151,19 @@ class _ViewStockPageState extends State<ViewStockPage> {
                     searchQuery = value.trim();
                   });
                 },
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Search',
                   hintText: 'Search by item name',
-                  border: OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.search),
+                  border: const OutlineInputBorder(),
                   fillColor: Colors.white,
                   filled: true,
                 ),
               ),
-
               const SizedBox(height: 10),
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
-                  stream:
-                      FirebaseFirestore.instance.collection('stock').orderBy('timestamp', descending: true).snapshots(),
+                  stream: _firestoreService.stockCollection.orderBy('timestamp', descending: true).snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) {
                       return const Center(child: CircularProgressIndicator());
@@ -178,17 +185,24 @@ class _ViewStockPageState extends State<ViewStockPage> {
                       itemBuilder: (context, index) {
                         final stock = stockList[index];
                         final item = stock['item'] ?? 'Unnamed';
-                        final quantity = stock['quantity'] ?? '0';
-                        final sellingPrice = stock['sellingPrice'] ?? 0.0;
-                        final restockAlert = stock['restockAlert'] ?? 0.0;
+
+                        // Fix: parse numeric part from quantity string
+                        final rawQuantity = stock['quantity'] ?? '0';
+                        final unit = stock['unit'] ?? '';
+
+                        double quantityValue = 0;
+                        try {
+                          final numericString = RegExp(r'[\d.]+').stringMatch(rawQuantity.toString()) ?? '0';
+                          quantityValue = double.parse(numericString);
+                        } catch (e) {
+                          quantityValue = 0;
+                        }
+
+                        final sellingPrice = (stock['sellingPrice'] ?? 0.0).toDouble();
+                        final restockAlert = (stock['restockAlert'] ?? 0.0).toDouble();
                         final docId = stock.id;
 
-                        double qty = 0.0;
-                        try {
-                          qty = double.parse(quantity.toString().split(' ')[0]);
-                        } catch (_) {}
-
-                        bool isRestock = qty <= restockAlert;
+                        bool isRestock = quantityValue <= restockAlert;
 
                         return Card(
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -215,7 +229,7 @@ class _ViewStockPageState extends State<ViewStockPage> {
                                     PopupMenuButton<String>(
                                       onSelected: (value) {
                                         if (value == 'Edit') {
-                                          _editStockItem(docId, item, qty, sellingPrice, restockAlert);
+                                          _editStockItem(docId, item, quantityValue, sellingPrice, restockAlert, unit);
                                         } else if (value == 'Delete') {
                                           _deleteStockItem(docId);
                                         }
@@ -229,7 +243,7 @@ class _ViewStockPageState extends State<ViewStockPage> {
                                   ],
                                 ),
                                 const SizedBox(height: 6),
-                                Text("Quantity: $quantity"),
+                                Text("Quantity: $rawQuantity $unit"),
                                 const SizedBox(height: 8),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,

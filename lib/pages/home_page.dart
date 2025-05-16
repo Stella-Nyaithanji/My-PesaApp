@@ -11,6 +11,7 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+
     final userName = user?.displayName ?? user?.email ?? 'User';
 
     return Scaffold(
@@ -49,6 +50,7 @@ class HomePage extends StatelessWidget {
             buildMenuButton(context, 'View Stock'),
             buildMenuButton(context, 'Sell Item'),
             buildMenuButton(context, 'Cart Summary'),
+            buildMenuButton(context, 'Settings Page'),
           ],
         ),
       ),
@@ -67,10 +69,7 @@ class HomePage extends StatelessWidget {
           } else if (title == 'View Stock') {
             Navigator.push(context, MaterialPageRoute(builder: (_) => const ViewStockPage()));
           } else if (title == 'Cart Summary') {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => CartPage(selectedItems: const {}, total: 0.0, onSaleCompleted: () {})),
-            );
+            Navigator.push(context, MaterialPageRoute(builder: (_) => CartPage(cartItems: [], onSaleCompleted: () {})));
           }
         },
         style: ElevatedButton.styleFrom(

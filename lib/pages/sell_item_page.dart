@@ -1,353 +1,198 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:my_pesa_app/pages/cart_page.dart';
 
 class SellItemPage extends StatefulWidget {
   const SellItemPage({super.key});
 
   @override
-  State<SellItemPage> createState() => _SellItemPageState();
+  SellItemPageState createState() => SellItemPageState();
 }
 
-class _SellItemPageState extends State<SellItemPage> {
-  final Map<String, dynamic> selectedItems = {};
-  double total = 0.0;
-  bool isProcessingSale = false;
-  int cartItemCount = 0;
-  String searchQuery = "";
+class SellItemPageState extends State<SellItemPage> {
+  List<Map<String, dynamic>> cartItems = [];
+  List<DocumentSnapshot> allItems = [];
+  List<DocumentSnapshot> filteredItems = [];
+  TextEditingController searchController = TextEditingController();
 
-  void showSellDialog(DocumentSnapshot stockItem) {
-    final qtyController = TextEditingController();
-    final priceController = TextEditingController(text: stockItem['sellingPrice'].toString());
+  @override
+  void initState() {
+    super.initState();
+    fetchStockItems();
+  }
+
+  Future<void> fetchStockItems() async {
+    try {
+      final snapshot =
+          await FirebaseFirestore.instance.collection('stock').orderBy('timestamp', descending: true).get();
+
+      setState(() {
+        allItems = snapshot.docs;
+        filteredItems = allItems;
+      });
+    } catch (e) {
+      print('Error fetching stock items: $e');
+    }
+  }
+
+  void filterItems(String query) {
+    setState(() {
+      filteredItems =
+          allItems.where((item) {
+            final name = item['item'].toString().toLowerCase();
+            return name.contains(query.toLowerCase());
+          }).toList();
+    });
+  }
+
+  void addToCart(DocumentSnapshot stockDoc, double quantity) {
+    final data = stockDoc.data() as Map<String, dynamic>;
+    final cartItem = {
+      'docId': stockDoc.id,
+      'item': data['item'],
+      'quantity': quantity,
+      'unit': data['unit'],
+      'sellingPrice': data['sellingPrice'],
+    };
+    setState(() {
+      cartItems.add({
+        'docId': stockDoc.id,
+        'item': stockDoc['item'],
+        'quantity': quantity,
+        'unit': stockDoc['unit'],
+        'sellingPrice': stockDoc['sellingPrice'],
+      });
+    });
+  }
+
+  void showQuantityDialog(DocumentSnapshot item) {
+    final controller = TextEditingController();
 
     showDialog(
       context: context,
-      builder:
-          (context) => StatefulBuilder(
-            builder:
-                (context, setStateDialog) => AlertDialog(
-                  title: Text("Sell ${stockItem['item']}"),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextField(
-                          controller: qtyController,
-                          keyboardType: TextInputType.numberWithOptions(decimal: true),
-                          decoration: InputDecoration(labelText: 'Quantity Sold (e.g., 0.5, 1.25)'),
-                        ),
-                        TextField(
-                          controller: priceController,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(labelText: 'Selling Price'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel')),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-                      onPressed: () {
-                        _addToCart(stockItem, qtyController, priceController);
-                      },
-                      child: Text('Add to Cart'),
-                    ),
-                  ],
-                ),
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Enter Quantity'),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(hintText: 'e.g. 2'),
           ),
-    );
-  }
-
-  void _addToCart(
-    DocumentSnapshot stockItem,
-    TextEditingController qtyController,
-    TextEditingController priceController,
-  ) {
-    final soldQty = double.tryParse(qtyController.text) ?? 0;
-    final soldPrice = double.tryParse(priceController.text) ?? 0;
-
-    if (soldQty <= 0 || soldPrice <= 0) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Invalid quantity or price!'), backgroundColor: Colors.red));
-      return;
-    }
-
-    final availableQty = double.tryParse(stockItem['quantity'].toString().split(' ').first) ?? 0;
-    if (availableQty <= 0) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${stockItem['item']} is out of stock!'), backgroundColor: Colors.red));
-      return;
-    }
-
-    if (soldQty > availableQty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Not enough stock available!'), backgroundColor: Colors.red));
-      return;
-    }
-
-    final unit = stockItem['quantity'].toString().split(' ').last;
-
-    setState(() {
-      selectedItems[stockItem.id] = {'item': stockItem['item'], 'quantity': soldQty, 'price': soldPrice, 'unit': unit};
-      total = selectedItems.values.fold(0.0, (sum, item) => sum + (item['price'] * item['quantity']));
-      cartItemCount = selectedItems.length;
-    });
-
-    Navigator.pop(context);
-  }
-
-  Future<void> _completeSale() async {
-    setState(() {
-      isProcessingSale = true;
-    });
-
-    try {
-      for (var entry in selectedItems.entries) {
-        final itemId = entry.key;
-        final soldQty = entry.value['quantity'];
-        final soldPrice = entry.value['price'];
-
-        final doc = FirebaseFirestore.instance.collection('stock').doc(itemId);
-        final snapshot = await doc.get();
-        final oldQtyStr = snapshot['quantity'].toString().split(' ').first;
-        final unit = snapshot['quantity'].toString().split(' ').last;
-        final restockAlert = double.tryParse(snapshot['restockAlert'].toString()) ?? 0;
-
-        double oldQty = double.tryParse(oldQtyStr) ?? 0;
-        double newQty = oldQty - soldQty;
-        if (newQty < 0) newQty = 0;
-
-        await doc.update({'quantity': '${newQty.toStringAsFixed(2)} $unit'});
-
-        if (newQty <= restockAlert) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('⚠️ ${snapshot['item']} is low in stock. Please restock.'),
-              backgroundColor: Colors.orange,
+          actions: [
+            TextButton(child: Text('Cancel'), onPressed: () => Navigator.pop(context)),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal[600]),
+              child: Text('Add to cart'),
+              onPressed: () {
+                final qty = double.tryParse(controller.text);
+                if (qty != null && qty > 0) {
+                  addToCart(item, qty);
+                  Navigator.pop(context);
+                }
+              },
             ),
-          );
-        }
-      }
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('✅ Sale completed!'), backgroundColor: Colors.green.shade700));
-
-      setState(() {
-        selectedItems.clear();
-        total = 0.0;
-        cartItemCount = 0;
-      });
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to complete sale: $e'), backgroundColor: Colors.red));
-    } finally {
-      setState(() {
-        isProcessingSale = false;
-      });
-    }
+          ],
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Sell Item'),
-        backgroundColor: Colors.teal,
+        title: Text('Sell Items'),
+        flexibleSpace: Container(
+          decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.green, Colors.teal])),
+        ),
         actions: [
-          IconButton(
-            icon: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Icon(Icons.shopping_cart),
-                if (cartItemCount > 0)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: CircleAvatar(
-                      radius: 10,
-                      backgroundColor: Colors.red,
-                      child: Text('$cartItemCount', style: TextStyle(fontSize: 12, color: Colors.white)),
+          Stack(
+            children: [
+              IconButton(
+                icon: Icon(Icons.shopping_cart),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder:
+                          (context) => CartPage(
+                            cartItems: cartItems,
+                            onSaleCompleted: () {
+                              setState(() {
+                                cartItems.clear(); // Clear cart when sale completes
+                              });
+                            },
+                          ),
                     ),
+                  );
+                },
+              ),
+              if (cartItems.isNotEmpty)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: CircleAvatar(
+                    backgroundColor: Colors.red,
+                    radius: 10,
+                    child: Text(cartItems.length.toString(), style: TextStyle(fontSize: 12, color: Colors.white)),
                   ),
-              ],
-            ),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => CartPage(selectedItems: selectedItems, total: total, onSaleCompleted: () {}),
                 ),
-              );
-            },
+            ],
           ),
         ],
       ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.all(10),
             child: TextField(
-              onChanged: (value) {
-                setState(() {
-                  searchQuery = value.toLowerCase();
-                });
-              },
+              controller: searchController,
+              onChanged: filterItems,
               decoration: InputDecoration(
-                labelText: 'Search Item',
+                hintText: 'Search item...',
                 prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                filled: true,
+                fillColor: Colors.grey[100],
               ),
             ),
           ),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('stock').orderBy('item').snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return Center(child: CircularProgressIndicator());
+            child: ListView.builder(
+              itemCount: filteredItems.length,
+              itemBuilder: (context, index) {
+                final item = filteredItems[index];
+                final itemName = item['item'];
+                final quantity = item['quantity'];
+                final unit = item['unit'];
+                final sellingPrice = item['sellingPrice'];
+                final restockAlert = item['restockAlert'];
 
-                final items = snapshot.data!.docs;
-                final filteredItems =
-                    items.where((item) {
-                      return item['item'].toString().toLowerCase().contains(searchQuery);
-                    }).toList();
+                final showRestock =
+                    double.tryParse(quantity.toString()) != null && double.parse(quantity.toString()) <= restockAlert;
 
-                return ListView.builder(
-                  itemCount: filteredItems.length,
-                  itemBuilder: (context, index) {
-                    final stockItem = filteredItems[index];
-                    final availableQty = double.tryParse(stockItem['quantity'].toString().split(' ').first) ?? 0;
-                    final restockAlert = double.tryParse(stockItem['restockAlert'].toString()) ?? 0;
-                    final isLowStock = availableQty <= restockAlert;
-                    final isOutOfStock = availableQty <= 0;
-
-                    return Dismissible(
-                      key: Key(stockItem.id),
-                      direction: DismissDirection.endToStart,
-                      confirmDismiss: (_) async {
-                        bool confirm = false;
-                        await showDialog(
-                          context: context,
-                          builder:
-                              (_) => AlertDialog(
-                                title: Text('Delete "${stockItem['item']}"?'),
-                                actions: [
-                                  TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel')),
-                                  TextButton(
-                                    onPressed: () {
-                                      confirm = true;
-                                      Navigator.pop(context);
-                                    },
-                                    child: Text('Delete', style: TextStyle(color: Colors.red)),
-                                  ),
-                                ],
-                              ),
-                        );
-                        return confirm;
-                      },
-                      onDismissed: (_) async {
-                        await FirebaseFirestore.instance.collection('stock').doc(stockItem.id).delete();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('${stockItem['item']} deleted'), backgroundColor: Colors.red),
-                        );
-                      },
-                      background: Container(
-                        color: Colors.red,
-                        alignment: Alignment.centerRight,
-                        padding: EdgeInsets.symmetric(horizontal: 20),
-                        child: Icon(Icons.delete, color: Colors.white),
+                return GestureDetector(
+                  onTap: () => showQuantityDialog(item),
+                  child: Card(
+                    margin: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    elevation: 3,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      title: Text(
+                        showRestock ? '$itemName - Restock' : itemName,
+                        style: TextStyle(fontWeight: FontWeight.bold, color: showRestock ? Colors.red : Colors.black),
                       ),
-                      child: Card(
-                        color: isOutOfStock ? Colors.grey.shade200 : Colors.white,
-                        margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        child: ListTile(
-                          title: Text(
-                            isLowStock ? '${stockItem['item']} - Restock' : stockItem['item'],
-                            style: TextStyle(
-                              color: isOutOfStock ? Colors.grey : Colors.black,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Available: ${stockItem['quantity']}",
-                                style: TextStyle(color: isOutOfStock ? Colors.grey : Colors.black),
-                              ),
-                              Text(
-                                "KSH ${stockItem['sellingPrice']}",
-                                style: TextStyle(
-                                  color: isOutOfStock ? Colors.grey : Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                ),
-                              ),
-                              if (isLowStock && !isOutOfStock)
-                                Text("⚠️ Restock needed", style: TextStyle(color: Colors.orange)),
-                            ],
-                          ),
-                          onTap: () {
-                            if (isOutOfStock) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('${stockItem['item']} is out of stock.'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            } else {
-                              showSellDialog(stockItem);
-                            }
-                          },
-                        ),
+                      subtitle: Text('$quantity $unit'),
+                      trailing: Text(
+                        'KSH $sellingPrice',
+                        style: TextStyle(color: Colors.teal[700], fontWeight: FontWeight.bold, fontSize: 16),
                       ),
-                    );
-                  },
+                    ),
+                  ),
                 );
               },
             ),
           ),
-          if (selectedItems.isNotEmpty) Divider(),
-          if (selectedItems.isNotEmpty)
-            Expanded(
-              // This is important to prevent overflow.
-              child: SingleChildScrollView(
-                // Scrolls if there are many selected items.
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text("Selected Items:", style: TextStyle(fontWeight: FontWeight.bold)),
-                      Column(
-                        children:
-                            selectedItems.entries.map((entry) {
-                              final item = entry.value;
-                              return ListTile(
-                                title: Text(item['item']),
-                                subtitle: Text(
-                                  'Qty: ${item['quantity']} x KSH ${item['price']} = KSH ${item['quantity'] * item['price']}',
-                                ),
-                              );
-                            }).toList(),
-                      ),
-                      Divider(),
-                      Text("Total: KSH $total", style: TextStyle(fontWeight: FontWeight.bold)),
-                      ElevatedButton(
-                        onPressed: isProcessingSale ? null : _completeSale,
-                        child:
-                            isProcessingSale ? CircularProgressIndicator(color: Colors.white) : Text('Complete Sale'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );

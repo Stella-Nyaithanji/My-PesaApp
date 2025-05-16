@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -6,10 +8,10 @@ class SignInPage extends StatefulWidget {
   const SignInPage({super.key});
 
   @override
-  _SignInPageState createState() => _SignInPageState();
+  SignInPageState createState() => SignInPageState();
 }
 
-class _SignInPageState extends State<SignInPage> {
+class SignInPageState extends State<SignInPage> {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   bool _obscurePassword = true;
@@ -21,6 +23,9 @@ class _SignInPageState extends State<SignInPage> {
         password: passwordController.text.trim(),
       );
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Login successful!')));
+      final user = FirebaseAuth.instance.currentUser;
+      log('Current user UID: ${user?.uid}');
+
       Navigator.pushReplacementNamed(context, '/home');
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -41,6 +46,8 @@ class _SignInPageState extends State<SignInPage> {
 
       await FirebaseAuth.instance.signInWithCredential(credential);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Google sign-in successful!')));
+      final user = FirebaseAuth.instance.currentUser;
+      log('Current user UID: ${user?.uid}');
       Navigator.pushReplacementNamed(context, '/home');
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Google sign-in failed: $e')));
