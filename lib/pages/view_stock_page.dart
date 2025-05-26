@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:my_pesa_app/pages/firestore_collections_service.dart';
-import 'package:my_pesa_app/widgets/add_debt_dialog_widget.dart';
 
 class ViewStockPage extends StatefulWidget {
   const ViewStockPage({super.key});
@@ -119,19 +118,7 @@ class ViewStockPageState extends State<ViewStockPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("View Stock"),
-        backgroundColor: Colors.teal,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.money_off),
-            tooltip: 'Add Debt',
-            onPressed: () {
-              showDialog(context: context, builder: (context) => AddDebtDialog());
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text("View Stock"), backgroundColor: Colors.teal),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(

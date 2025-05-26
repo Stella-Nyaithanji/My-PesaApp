@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:my_pesa_app/pages/landing_page.dart';
+import 'package:my_pesa_app/pages/my_account_page.dart';
 import 'package:my_pesa_app/pages/sign_in_page.dart';
 import 'package:my_pesa_app/pages/sign_up_page.dart';
 
@@ -24,6 +25,7 @@ class MyPesaApp extends StatelessWidget {
         '/signin': (context) => SignInPage(),
         '/signup': (context) => SignUpPage(),
         '/home': (context) => LandingPage(),
+        '/account': (context) => const MyAccountPage(),
       },
     );
   }

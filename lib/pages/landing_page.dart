@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:my_pesa_app/pages/reports_page.dart';
 import 'package:my_pesa_app/pages/stock_page.dart';
 import 'package:my_pesa_app/pages/sell_item_page.dart';
 import 'package:my_pesa_app/pages/home_page.dart';
-import 'package:my_pesa_app/pages/debts_&_credits_page.dart';
+import 'package:my_pesa_app/pages/balances_page.dart';
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -18,7 +19,8 @@ class _LandingPageState extends State<LandingPage> {
     const HomePage(), //Home
     const StockPage(), //Stock
     const SellItemPage(), // Sell
-    const DebtsCreditsPage(), // Debts & Credits
+    const BalancesPage(), // Balances
+    const ReportsPage(), // Reports
   ];
 
   @override
@@ -39,7 +41,8 @@ class _LandingPageState extends State<LandingPage> {
             NavigationDestination(icon: Icon(Icons.home), label: "Home"),
             NavigationDestination(icon: Icon(Icons.store), label: "Stock"),
             NavigationDestination(icon: Icon(Icons.point_of_sale), label: "Sell"),
-            NavigationDestination(icon: Icon(Icons.receipt_long), label: "Debts & Credits"),
+            NavigationDestination(icon: Icon(Icons.receipt_long), label: "Balances"),
+            NavigationDestination(icon: Icon(Icons.bar_chart), label: "Reports"),
           ],
         ),
       ),

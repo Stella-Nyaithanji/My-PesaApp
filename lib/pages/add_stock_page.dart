@@ -22,6 +22,7 @@ class AddStockPageState extends State<AddStockPage> {
     'grams',
     'pieces',
     'litres',
+    'loaves',
     'satchets',
     'packets',
     'crates',

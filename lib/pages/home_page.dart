@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:my_pesa_app/pages/add_Stock_page.dart';
 import 'package:my_pesa_app/pages/cart_page.dart';
+import 'package:my_pesa_app/pages/reports_page.dart';
 import 'package:my_pesa_app/pages/sell_item_page.dart';
 import 'package:my_pesa_app/pages/view_stock_page.dart';
 
@@ -20,12 +21,19 @@ class HomePage extends StatelessWidget {
         elevation: 0,
         title: const Text('My Pesa APP', style: TextStyle(color: Colors.white)),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              Navigator.pushReplacementNamed(context, '/signin');
+          GestureDetector(
+            onTap: () {
+              Navigator.pushNamed(context, '/account');
             },
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16.0),
+              child: CircleAvatar(
+                radius: 20,
+                backgroundColor: Colors.white,
+                backgroundImage: user?.photoURL != null ? NetworkImage(user!.photoURL!) : null,
+                child: user?.photoURL == null ? const Icon(Icons.person, color: Colors.teal) : null,
+              ),
+            ),
           ),
         ],
       ),
@@ -50,7 +58,7 @@ class HomePage extends StatelessWidget {
             buildMenuButton(context, 'View Stock'),
             buildMenuButton(context, 'Sell Item'),
             buildMenuButton(context, 'Cart Summary'),
-            buildMenuButton(context, 'Settings Page'),
+            buildMenuButton(context, 'Reports'),
           ],
         ),
       ),
@@ -70,6 +78,8 @@ class HomePage extends StatelessWidget {
             Navigator.push(context, MaterialPageRoute(builder: (_) => const ViewStockPage()));
           } else if (title == 'Cart Summary') {
             Navigator.push(context, MaterialPageRoute(builder: (_) => CartPage(cartItems: [], onSaleCompleted: () {})));
+          } else if (title == 'Reports') {
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsPage()));
           }
         },
         style: ElevatedButton.styleFrom(

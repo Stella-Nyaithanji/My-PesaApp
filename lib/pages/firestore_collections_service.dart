@@ -1,5 +1,6 @@
 import 'dart:developer';
-
+import 'dart:io';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -66,18 +67,57 @@ class FirestoreCollectionsService {
   Future<void> addCustomerCredit({
     required String customerName,
     required double amount,
-    required List<Map<String, dynamic>> items,
+    required String reason,
+    required List<Map<String, dynamic>> cart,
   }) async {
-    if (userId == null) throw Exception('User not authenticated');
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      log('User not authenticated when trying to add customer credit.');
+      throw Exception('User not authenticated');
+    }
 
-    log('Saving credit for userId: $userId');
-    await _firestore.collection('credits').add({
+    log('Adding credit for customer: $customerName, amount: $amount, reason: $reason');
+
+    // Reference to the customer's credit document
+    final customerDocRef = _firestore.collection('credits').doc(customerName);
+
+    final docSnapshot = await customerDocRef.get();
+
+    double previousBalance = 0;
+    if (docSnapshot.exists) {
+      final data = docSnapshot.data();
+      if (data != null && data['amount'] != null) {
+        previousBalance = (data['amount'] as num).toDouble();
+        log('Found existing amount: $previousBalance for customer: $customerName');
+      }
+    } else {
+      log('No existing credit document for customer: $customerName, will create new.');
+    }
+
+    double newBalance = previousBalance + amount;
+    log('Updating credit amount from $previousBalance to $newBalance for customer: $customerName');
+
+    // Update or create the customer's credit document
+    await customerDocRef.set({
+      'userId': uid,
       'customerName': customerName,
-      'amount': amount,
-      'items': items,
+      'amount': newBalance,
       'timestamp': FieldValue.serverTimestamp(),
-      'userId': FirebaseAuth.instance.currentUser!.uid,
+    }, SetOptions(merge: true));
+
+    log('Credit document updated for customer: $customerName');
+
+    // Add an entry to creditHistory subcollection
+    await customerDocRef.collection('creditHistory').add({
+      'type': reason,
+      'amount': amount,
+      'previousBalance': previousBalance,
+      'newBalance': newBalance,
+      'timestamp': FieldValue.serverTimestamp(),
+      'cartItems': cart,
     });
+
+    log('Credit history entry added for customer: $customerName');
   }
 
   // Log a supplier debt
@@ -143,7 +183,11 @@ class FirestoreCollectionsService {
       final rawQty = docSnapshot.get('quantity');
       final currentQty = rawQty is String ? double.tryParse(rawQty) ?? 0.0 : rawQty as double;
 
-      final soldQty = (item['quantity'] ?? 0).toDouble();
+      final soldQty =
+          (item['quantity'] ?? 0) is num
+              ? (item['quantity'] as num).toDouble()
+              : double.tryParse(item['quantity'].toString()) ?? 0.0;
+
       final newQty = currentQty - soldQty;
 
       if (newQty < 0) throw Exception('Not enough stock for ${item['item']}');
@@ -155,23 +199,19 @@ class FirestoreCollectionsService {
   }
 
   /// Add a credit record (for credit sales or extra cash left)
-  Future<void> addCreditRecord({
-    required String customerName,
-    required double amount,
-    required List<Map<String, dynamic>> cartItems,
-    String? reason,
-  }) async {
-    final data = {'customerName': customerName, 'timestamp': Timestamp.now()};
 
-    if (reason != null) {
-      data['reason'] = reason;
-      data['creditAmount'] = amount;
-    } else {
-      data['amountOwed'] = amount;
-      data['items'] = cartItems;
+  final CollectionReference _creditsCollection = FirebaseFirestore.instance.collection('credits');
+
+  Future<bool> addCredit({required String customerName, required double amount}) async {
+    if (customerName.isEmpty || amount <= 0) return false;
+
+    try {
+      await _creditsCollection.add({'customerName': customerName, 'amount': amount, 'timestamp': Timestamp.now()});
+      return true;
+    } catch (e) {
+      print('Error adding credit: $e');
+      return false;
     }
-
-    await _firestore.collection('credits').add(data);
   }
 
   Future<void> updateCredit({required String docId, required Map<String, dynamic> updatedData}) async {
@@ -223,36 +263,75 @@ class FirestoreCollectionsService {
 
     await docRef.update(updatedData);
   }
-}
 
-Future<void> convertStockQuantitiesToDouble() async {
-  final firestore = FirebaseFirestore.instance;
-  final userId = FirebaseAuth.instance.currentUser?.uid;
-
-  if (userId == null) {
-    log('User not authenticated');
-    return;
+  Future<void> logCreditTransaction({
+    required String creditDocId,
+    required String type, // 'payment', 'storeCredit', 'sale'
+    required double amount,
+    required double previousBalance,
+    required double newBalance,
+    required String customerName,
+  }) async {
+    await _firestore.collection('credits').doc(creditDocId).collection('creditHistory').add({
+      'type': type,
+      'amount': amount,
+      'previousBalance': previousBalance,
+      'newBalance': newBalance,
+      'timestamp': FieldValue.serverTimestamp(),
+      'customerName': customerName,
+    });
   }
 
-  final snapshot = await firestore.collection('stock').where('userId', isEqualTo: userId).get();
-
-  for (var doc in snapshot.docs) {
-    final data = doc.data();
-    final quantity = data['quantity'];
-
-    if (quantity is String) {
-      final parsedQuantity = double.tryParse(quantity);
-
-      if (parsedQuantity != null) {
-        log('Updating ${doc.id} → $parsedQuantity');
-        await firestore.collection('stock').doc(doc.id).update({'quantity': parsedQuantity});
-      } else {
-        log('Failed to parse quantity for ${doc.id}: $quantity');
-      }
-    } else {
-      log('Quantity already a number for ${doc.id}');
-    }
+  /// Record a completed sale into the 'sales' collection
+  Future<void> recordSale({
+    required List<Map<String, dynamic>> items,
+    required double total,
+    required double paid,
+    required bool isCredit,
+    required double change,
+    String? customerName,
+  }) async {
+    final uid = userId;
+    if (uid == null) throw Exception('User not authenticated');
+    final data = {
+      'userId': FirebaseAuth.instance.currentUser!.uid,
+      'items': items,
+      'total': total,
+      'paid': paid,
+      'change': change,
+      'isCredit': isCredit,
+      'timestamp': FieldValue.serverTimestamp(),
+      if (isCredit && customerName != null) 'customerName': customerName,
+    };
+    await _firestore.collection('sales').add(data);
   }
 
-  log('✔ Quantity conversion completed.');
+  /// Fetch all sale records for the current user
+  Future<List<QueryDocumentSnapshot>> fetchSalesRecords() async {
+    final uid = userId;
+    if (uid == null) throw Exception('User not authenticated');
+    final snapshot =
+        await _firestore
+            .collection('sales')
+            .where('userId', isEqualTo: uid)
+            .orderBy('timestamp', descending: true)
+            .get();
+    return snapshot.docs;
+  }
+
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+
+  /// Uploads a profile image and returns the download URL
+  Future<String> uploadProfileImage(File imageFile) async {
+    if (userId == null) throw Exception('User not authenticated');
+
+    final ref = _storage.ref().child('profileImages').child('$userId.jpg');
+    await ref.putFile(imageFile);
+    final url = await ref.getDownloadURL();
+
+    // Optionally update user profile data in Firestore (if you have a user profile collection)
+    await _firestore.collection('users').doc(userId).update({'profileImageUrl': url});
+
+    return url;
+  }
 }

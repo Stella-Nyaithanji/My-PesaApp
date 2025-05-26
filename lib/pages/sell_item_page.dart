@@ -61,6 +61,7 @@ class SellItemPageState extends State<SellItemPage> {
         'quantity': quantity,
         'unit': stockDoc['unit'],
         'sellingPrice': stockDoc['sellingPrice'],
+        'buyingPrice': stockDoc['buyingPrice'],
       });
     });
   }

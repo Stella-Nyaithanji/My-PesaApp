@@ -16,12 +16,16 @@ class _CreditsTabPageState extends State<CreditsTabPage> {
   final CollectionReference _creditsCollection = FirebaseFirestore.instance.collection('credits');
 
   void _addCredit() async {
-    final String name = _nameController.text.trim();
+    final String customerName = _nameController.text.trim();
     final String amount = _amountController.text.trim();
 
-    if (name.isEmpty || amount.isEmpty) return;
+    if (customerName.isEmpty || amount.isEmpty) return;
 
-    await _creditsCollection.add({'name': name, 'amount': amount, 'timestamp': Timestamp.now()});
+    await _creditsCollection.add({
+      'customerName': customerName,
+      'amount': double.tryParse(amount) ?? 0.0,
+      'timestamp': Timestamp.now(),
+    });
 
     _nameController.clear();
     _amountController.clear();
@@ -30,42 +34,63 @@ class _CreditsTabPageState extends State<CreditsTabPage> {
   }
 
   void _editCredit(String docId, String currentName, String currentAmount) {
-    _nameController.text = currentName;
-    _amountController.text = currentAmount;
+    final TextEditingController _amountPaidController = TextEditingController();
 
     showDialog(
       context: context,
-      builder:
-          (_) => AlertDialog(
-            title: const Text('Edit Credit'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Customer Name')),
-                TextField(
-                  controller: _amountController,
-                  decoration: const InputDecoration(labelText: 'Amount'),
-                  keyboardType: TextInputType.number,
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-              ElevatedButton(
-                onPressed: () async {
-                  await _creditsCollection.doc(docId).update({
-                    'name': _nameController.text.trim(),
-                    'amount': _amountController.text.trim(),
-                  });
-
-                  _nameController.clear();
-                  _amountController.clear();
-                  Navigator.of(context).pop();
-                },
-                child: const Text('Update'),
+      builder: (_) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: const Text('Pay Credit'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: TextEditingController(text: currentName),
+                readOnly: true,
+                decoration: const InputDecoration(labelText: 'Customer Name'),
+              ),
+              TextField(
+                controller: TextEditingController(text: currentAmount),
+                readOnly: true,
+                decoration: const InputDecoration(labelText: 'Current Amount (KSH)'),
+              ),
+              TextField(
+                controller: _amountPaidController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Amount Paid (KSH)'),
               ),
             ],
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
+              onPressed: () async {
+                final paidStr = _amountPaidController.text.trim();
+                if (paidStr.isEmpty) return;
+                final paid = double.tryParse(paidStr) ?? 0;
+                final current = double.tryParse(currentAmount) ?? 0;
+                final newAmount = (current - paid).clamp(0, current);
+
+                await _creditsCollection.doc(docId).update({'amount': newAmount});
+
+                await _creditsCollection.doc(docId).collection('creditHistory').add({
+                  'type': 'payment',
+                  'amount': paid,
+                  'previousBalance': current,
+                  'newBalance': newAmount,
+                  'timestamp': FieldValue.serverTimestamp(),
+                  'customerName': currentName,
+                });
+
+                Navigator.of(context).pop();
+              },
+              child: const Text('Apply Payment'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -74,6 +99,7 @@ class _CreditsTabPageState extends State<CreditsTabPage> {
       context: context,
       builder:
           (_) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             title: const Text('Delete Credit'),
             content: const Text('Are you sure you want to delete this credit record?'),
             actions: [
@@ -96,6 +122,7 @@ class _CreditsTabPageState extends State<CreditsTabPage> {
       context: context,
       builder:
           (_) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             title: const Text('Add Credit'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -103,7 +130,7 @@ class _CreditsTabPageState extends State<CreditsTabPage> {
                 TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Customer Name')),
                 TextField(
                   controller: _amountController,
-                  decoration: const InputDecoration(labelText: 'Amount'),
+                  decoration: const InputDecoration(labelText: 'Credit Amount'),
                   keyboardType: TextInputType.number,
                 ),
               ],
@@ -117,9 +144,123 @@ class _CreditsTabPageState extends State<CreditsTabPage> {
                 },
                 child: const Text('Cancel'),
               ),
-              ElevatedButton(onPressed: _addCredit, child: const Text('Add')),
+              ElevatedButton(
+                onPressed: _addCredit,
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                child: const Text('Add'),
+              ),
             ],
           ),
+    );
+  }
+
+  void _viewCreditHistory(String docId, String customerName) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.6,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) {
+            return Column(
+              children: [
+                const SizedBox(height: 12),
+                Text(
+                  'Credit History - $customerName',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+                const Divider(),
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream:
+                        _creditsCollection
+                            .doc(docId)
+                            .collection('creditHistory')
+                            .orderBy('timestamp', descending: true)
+                            .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return const Padding(padding: EdgeInsets.all(16), child: Text('Error loading history'));
+                      }
+
+                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                        return const Padding(padding: EdgeInsets.all(16), child: Text('No credit history available'));
+                      }
+
+                      return ListView.builder(
+                        controller: scrollController,
+                        itemCount: snapshot.data!.docs.length,
+                        itemBuilder: (context, index) {
+                          final data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
+                          final amount = (data['amount'] ?? 0) as num;
+                          final prev = (data['previousBalance'] ?? 0) as num;
+                          final newBal = (data['newBalance'] ?? 0) as num;
+                          final ts = data['timestamp'] as Timestamp?;
+                          final dateStr = ts != null ? DateFormat.yMMMd().add_jm().format(ts.toDate()) : '';
+
+                          final type = data['type'] ?? 'payment';
+
+                          if (type.toString().toLowerCase().contains('credit')) {
+                            final List cart = data['cartItems'] ?? [];
+
+                            return ExpansionTile(
+                              leading: const Icon(Icons.shopping_cart, color: Colors.teal),
+                              title: Text(
+                                'Credit Sale - KSH ${amount.toDouble().toStringAsFixed(2)}',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              subtitle: Text('Date: $dateStr'),
+                              children: [
+                                ...cart.map<Widget>((item) {
+                                  final String itemName = item['item'] ?? '';
+                                  final quantity = (item['quantity'] ?? 0).toDouble();
+                                  final unit = item['unit'] ?? '';
+                                  final price = (item['sellingPrice'] ?? 0).toDouble();
+
+                                  return ListTile(
+                                    dense: true,
+                                    title: Text(itemName, style: const TextStyle(color: Colors.teal)),
+                                    subtitle: Text('$quantity $unit x KSH ${price.toStringAsFixed(2)}'),
+                                  );
+                                }),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        'Total: KSH ${cart.fold<double>(0, (sum, item) => sum + ((item['quantity'] ?? 0) * (item['sellingPrice'] ?? 0))).toStringAsFixed(2)}',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          } else {
+                            return ListTile(
+                              leading: const Icon(Icons.history, color: Colors.teal),
+                              title: Text('Paid: KSH ${amount.toDouble().toStringAsFixed(2)}'),
+                              subtitle: Text(
+                                'Previous: KSH ${prev.toDouble().toStringAsFixed(2)} → Now: KSH ${newBal.toDouble().toStringAsFixed(2)}\n$dateStr',
+                              ),
+                            );
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -154,33 +295,54 @@ class _CreditsTabPageState extends State<CreditsTabPage> {
             itemBuilder: (context, index) {
               final doc = docs[index];
               final data = doc.data() as Map<String, dynamic>;
-              final name = data['name'] as String? ?? 'Unknown';
-              final amount = data['amount'] as String? ?? '0';
-
+              final customerName = data['customerName'] ?? 'Unknown';
+              final rawAmount = data['amount'] as num?;
+              final amount = rawAmount != null ? (rawAmount.toDouble()).toStringAsFixed(2) : '0.00';
               final timestamp = data['timestamp'] as Timestamp;
 
-              return Card(
-                elevation: 4,
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: ListTile(
-                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text(
-                    'Amount: KSH $amount\nDate: ${DateFormat.yMMMd().add_jm().format(timestamp.toDate())}',
-                  ),
-                  isThreeLine: true,
-                  trailing: PopupMenuButton<String>(
-                    onSelected: (value) {
-                      if (value == 'edit') {
-                        _editCredit(doc.id, name, amount);
-                      } else if (value == 'delete') {
-                        _deleteCredit(doc.id);
-                      }
-                    },
-                    itemBuilder:
-                        (context) => [
-                          const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                          const PopupMenuItem(value: 'delete', child: Text('Delete')),
-                        ],
+              return GestureDetector(
+                onTap: () => _viewCreditHistory(doc.id, customerName),
+                child: Card(
+                  elevation: 4,
+                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: ListTile(
+                    title: Text(customerName, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
+                    subtitle: Text(
+                      'Amount: KSH $amount\nDate: ${DateFormat.yMMMd().add_jm().format(timestamp.toDate())}',
+                    ),
+                    isThreeLine: true,
+                    trailing: PopupMenuButton<String>(
+                      onSelected: (value) {
+                        if (value == 'edit') {
+                          _editCredit(doc.id, customerName, amount);
+                        } else if (value == 'delete') {
+                          _deleteCredit(doc.id);
+                        }
+                      },
+                      itemBuilder:
+                          (context) => const [
+                            PopupMenuItem(
+                              value: 'edit',
+                              child: Row(
+                                children: const [
+                                  Icon(Icons.edit, color: Colors.teal),
+                                  SizedBox(width: 8),
+                                  Text('Edit'),
+                                ],
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Row(
+                                children: const [
+                                  Icon(Icons.delete, color: Colors.red),
+                                  SizedBox(width: 8),
+                                  Text('Delete'),
+                                ],
+                              ),
+                            ),
+                          ],
+                    ),
                   ),
                 ),
               );

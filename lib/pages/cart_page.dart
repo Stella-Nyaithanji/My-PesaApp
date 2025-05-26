@@ -1,4 +1,7 @@
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'firestore_collections_service.dart';
 
 class CartPage extends StatefulWidget {
@@ -8,15 +11,15 @@ class CartPage extends StatefulWidget {
   const CartPage({super.key, required this.cartItems, required this.onSaleCompleted});
 
   @override
-  State<CartPage> createState() => _CartPageState();
+  State<CartPage> createState() => CartPageState();
 }
 
-class _CartPageState extends State<CartPage> {
+class CartPageState extends State<CartPage> {
   final TextEditingController _cashController = TextEditingController();
   final TextEditingController _customerNameController = TextEditingController();
-
   final FirestoreCollectionsService _firestoreService = FirestoreCollectionsService();
 
+  final NumberFormat _formatter = NumberFormat("#,##0.00", "en_US");
   double _total = 0.0;
 
   @override
@@ -28,19 +31,10 @@ class _CartPageState extends State<CartPage> {
   void _calculateTotal() {
     double total = 0.0;
     for (var item in widget.cartItems) {
-      final dynamic quantity = item['quantity'] ?? 0;
+      final quantity = item['quantity'];
       final sellingPrice = (item['sellingPrice'] ?? 0).toDouble();
-
-      double quantityValue;
-      if (quantity is num) {
-        quantityValue = quantity.toDouble();
-      } else if (quantity is String) {
-        quantityValue = double.tryParse(quantity) ?? 0;
-      } else {
-        quantityValue = 0;
-      }
-
-      total += quantityValue * sellingPrice;
+      double qtyValue = quantity is num ? quantity.toDouble() : double.tryParse(quantity.toString()) ?? 0.0;
+      total += qtyValue * sellingPrice;
     }
     setState(() {
       _total = total;
@@ -50,46 +44,65 @@ class _CartPageState extends State<CartPage> {
   Future<void> _completeSale() async {
     final paid = double.tryParse(_cashController.text.trim()) ?? 0.0;
     final customerName = _customerNameController.text.trim();
+    final isCredit = paid < _total;
+    final change = paid > _total ? paid - _total : 0.0;
 
-    if (paid < _total && customerName.isEmpty) {
+    if (isCredit && customerName.isEmpty) {
       _showSnackBar('Please enter customer name for credit sales.', isError: true);
       return;
     }
 
-    try {
-      // Ensure all cart items have a docId
-      for (var item in widget.cartItems) {
-        if (!item.containsKey('docId') || (item['docId'] == null || item['docId'] == '')) {
-          throw Exception('Missing docId in one or more cart items.');
-        }
-      }
+    final cartAsMaps =
+        widget.cartItems
+            .map(
+              (item) => {
+                'docId': item['docId'], // use bracket notation
+                'item': item['item'],
+                'quantity': item['quantity'],
+                'unit': item['unit'],
+                'sellingPrice': item['sellingPrice'],
+                'buyingPrice': item['buyingPrice'],
+              },
+            )
+            .toList();
 
-      // Update stock quantities in batch
+    try {
       await _firestoreService.updateStockQuantities(widget.cartItems);
 
-      // Handle credit and change
-      if (paid < _total) {
-        await _firestoreService.addCreditRecord(
+      await _firestoreService.recordSale(
+        items: cartAsMaps, // pass converted list here
+        total: _total,
+        paid: paid,
+        isCredit: isCredit,
+        change: change,
+        customerName: isCredit ? customerName : null,
+      );
+
+      if (isCredit) {
+        log('Cart to save: $cartAsMaps'); // log converted cart
+
+        await _firestoreService.addCustomerCredit(
           customerName: customerName,
           amount: _total - paid,
-          cartItems: widget.cartItems,
+          reason: 'Credit Sale',
+          cart: cartAsMaps, // pass converted list here as well
         );
         _showSnackBar('Sale completed on credit for $customerName.');
-      } else if (paid > _total && customerName.isNotEmpty) {
-        await _firestoreService.addCreditRecord(
+      } else if (change > 0) {
+        await _firestoreService.logCustomerChange(
           customerName: customerName,
-          amount: paid - _total,
-          cartItems: [],
-          reason: 'Extra cash left at store',
+          changeAmount: change,
+          reason: 'Change returned',
         );
-        _showSnackBar('Change KSH ${(paid - _total).toStringAsFixed(2)} left for $customerName.');
+        _showSnackBar('Change KSH ${_formatter.format(change)} returned.');
       } else {
         _showSnackBar('Sale completed successfully.');
       }
 
-      // Clear cart and close page
       widget.cartItems.clear();
       widget.onSaleCompleted();
+      _cashController.clear();
+      _customerNameController.clear();
       Navigator.pop(context);
     } catch (e) {
       _showSnackBar('Error completing sale: $e', isError: true);
@@ -97,9 +110,12 @@ class _CartPageState extends State<CartPage> {
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
-    final snackBarColor = isError ? Colors.redAccent : Colors.teal.shade700;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: snackBarColor, duration: const Duration(seconds: 3)),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.redAccent : Colors.teal.shade700,
+        duration: const Duration(seconds: 3),
+      ),
     );
   }
 
@@ -129,6 +145,18 @@ class _CartPageState extends State<CartPage> {
 
   @override
   Widget build(BuildContext context) {
+    final paid = double.tryParse(_cashController.text.trim()) ?? 0.0;
+    final balance = paid - _total;
+
+    String balanceMessage = '';
+    if (balance > 0) {
+      balanceMessage = 'Change to return: KSH ${_formatter.format(balance)}';
+    } else if (balance < 0) {
+      balanceMessage = 'Credit: KSH ${_formatter.format(-balance)}';
+    } else if (paid > 0) {
+      balanceMessage = 'Exact amount received.';
+    }
+
     return Scaffold(
       appBar: _buildGradientAppBar(),
       body: Padding(
@@ -143,25 +171,17 @@ class _CartPageState extends State<CartPage> {
                         itemCount: widget.cartItems.length,
                         itemBuilder: (context, index) {
                           final item = widget.cartItems[index];
-                          final dynamic quantity = item['quantity'] ?? 0;
+                          final qty = item['quantity'];
                           final sellingPrice = (item['sellingPrice'] ?? 0).toDouble();
                           final unit = item['unit']?.toString() ?? '';
-
-                          double quantityValue;
-                          if (quantity is num) {
-                            quantityValue = quantity.toDouble();
-                          } else if (quantity is String) {
-                            quantityValue = double.tryParse(quantity) ?? 0;
-                          } else {
-                            quantityValue = 0;
-                          }
+                          double qtyValue = qty is num ? qty.toDouble() : double.tryParse(qty.toString()) ?? 0.0;
 
                           return Card(
                             child: ListTile(
                               title: Text(item['item'] ?? ''),
-                              subtitle: Text('$quantity $unit x KSH $sellingPrice'),
+                              subtitle: Text('$qty $unit x KSH ${_formatter.format(sellingPrice)}'),
                               trailing: Text(
-                                'KSH ${(quantityValue * sellingPrice).toStringAsFixed(2)}',
+                                'KSH ${_formatter.format(qtyValue * sellingPrice)}',
                                 style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
                               ),
                             ),
@@ -171,15 +191,27 @@ class _CartPageState extends State<CartPage> {
             ),
             const SizedBox(height: 10),
             Text(
-              'Total: KSH ${_total.toStringAsFixed(2)}',
+              'Total: KSH ${_formatter.format(_total)}',
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.teal),
             ),
             const SizedBox(height: 15),
             TextField(
               controller: _cashController,
-              keyboardType: TextInputType.number,
+              keyboardType: TextInputType.numberWithOptions(decimal: true),
+              autofocus: true,
               decoration: const InputDecoration(labelText: 'Cash received', border: OutlineInputBorder()),
+              onChanged: (_) => setState(() {}),
             ),
+            const SizedBox(height: 10),
+            if (balanceMessage.isNotEmpty)
+              Text(
+                balanceMessage,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: balance < 0 ? Colors.red : Colors.teal.shade700,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             const SizedBox(height: 15),
             TextField(
               controller: _customerNameController,
@@ -190,13 +222,12 @@ class _CartPageState extends State<CartPage> {
             ),
             const SizedBox(height: 20),
             ElevatedButton(
+              onPressed: (widget.cartItems.isEmpty || _cashController.text.trim().isEmpty) ? null : _completeSale,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.teal.shade700,
                 padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 50),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-
-              onPressed: _completeSale,
               child: const Text('Complete Sale', style: TextStyle(fontSize: 18)),
             ),
           ],

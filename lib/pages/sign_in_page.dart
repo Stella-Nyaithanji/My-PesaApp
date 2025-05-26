@@ -1,5 +1,4 @@
 import 'dart:developer';
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -33,25 +32,22 @@ class SignInPageState extends State<SignInPage> {
   }
 
   Future<void> signInWithGoogle(BuildContext context) async {
-    try {
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
-      if (googleUser == null) return;
+    final GoogleSignIn googleSignIn = GoogleSignIn(scopes: ['email']);
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+    // Sign out first to force account picker
+    await googleSignIn.signOut();
 
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
+    final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+    if (googleUser == null) return; // User canceled
 
-      await FirebaseAuth.instance.signInWithCredential(credential);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Google sign-in successful!')));
-      final user = FirebaseAuth.instance.currentUser;
-      log('Current user UID: ${user?.uid}');
-      Navigator.pushReplacementNamed(context, '/home');
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Google sign-in failed: $e')));
-    }
+    final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+    final credential = GoogleAuthProvider.credential(accessToken: googleAuth.accessToken, idToken: googleAuth.idToken);
+
+    await FirebaseAuth.instance.signInWithCredential(credential);
+
+    // Navigate to HomePage after sign-in
+    Navigator.pushReplacementNamed(context, '/home');
   }
 
   @override

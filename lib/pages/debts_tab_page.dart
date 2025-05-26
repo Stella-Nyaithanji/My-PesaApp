@@ -1,86 +1,102 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:my_pesa_app/widgets/add_debt_dialog_widget.dart';
 
 class DebtsTabPage extends StatelessWidget {
-  final String userId; // Pass from parent widget
+  final String userId;
 
   const DebtsTabPage({super.key, required this.userId});
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream:
-          FirebaseFirestore.instance
-              .collection('debts')
-              .where('userId', isEqualTo: userId)
-              .orderBy('timestamp', descending: true)
-              .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Debts'),
+        backgroundColor: Colors.teal,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.money_off),
+            tooltip: 'Add Debt',
+            onPressed: () {
+              showDialog(context: context, builder: (context) => AddDebtDialog());
+            },
+          ),
+        ],
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream:
+            FirebaseFirestore.instance
+                .collection('debts')
+                //.where('userId', isEqualTo: userId) // uncomment if needed
+                .orderBy('timestamp', descending: true)
+                .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
 
-        final debts = snapshot.data?.docs ?? [];
+          final debts = snapshot.data?.docs ?? [];
 
-        if (debts.isEmpty) {
-          return const Center(child: Text('No debts found.'));
-        }
+          if (debts.isEmpty) {
+            return const Center(child: Text('No debts found.'));
+          }
 
-        return ListView.builder(
-          itemCount: debts.length,
-          itemBuilder: (context, index) {
-            final doc = debts[index];
-            final data = doc.data() as Map<String, dynamic>;
+          return ListView.builder(
+            itemCount: debts.length,
+            itemBuilder: (context, index) {
+              final doc = debts[index];
+              final data = doc.data() as Map<String, dynamic>;
 
-            final customer = data['customerName'] ?? 'Unknown';
-            final amount = data['amount'] ?? 0;
-            final reason = data['reason'] ?? '';
-            final timestamp = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+              final supplier = data['supplierName'] ?? 'Unknown';
+              final amount = data['total'] ?? 0;
+              final reason = data['reason'] ?? '';
+              final timestamp = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
 
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              elevation: 2,
-              child: ListTile(
-                title: Text(
-                  '$customer - KSH ${amount.toString()}',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 2,
+                child: ListTile(
+                  title: Text(
+                    '$supplier - KSH ${amount.toString()}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (reason.isNotEmpty) Text('Reason: $reason'),
+                      Text('Date: ${DateFormat.yMMMd().format(timestamp)}'),
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.teal),
+                        onPressed: () => _showEditDialog(context, doc.id, data),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () => _showDeleteDialog(context, doc.id),
+                      ),
+                    ],
+                  ),
                 ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (reason.isNotEmpty) Text('Reason: $reason'),
-                    Text('Date: ${DateFormat.yMMMd().format(timestamp)}'),
-                  ],
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit, color: Colors.teal),
-                      onPressed: () => _showEditDialog(context, doc.id, data),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _showDeleteDialog(context, doc.id),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+              );
+            },
+          );
+        },
+      ),
     );
   }
 
   void _showEditDialog(BuildContext context, String docId, Map<String, dynamic> data) {
-    final amountController = TextEditingController(text: data['amount'].toString());
+    final amountController = TextEditingController(text: data['total'].toString());
     final reasonController = TextEditingController(text: data['reason'] ?? '');
 
     showDialog(
@@ -105,11 +121,11 @@ class DebtsTabPage extends StatelessWidget {
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
                 child: const Text('Save'),
                 onPressed: () async {
-                  final newAmount = double.tryParse(amountController.text) ?? data['amount'];
+                  final newAmount = double.tryParse(amountController.text) ?? data['total'];
                   final newReason = reasonController.text.trim();
 
                   await FirebaseFirestore.instance.collection('debts').doc(docId).update({
-                    'amount': newAmount,
+                    'total': newAmount,
                     'reason': newReason,
                   });
 
